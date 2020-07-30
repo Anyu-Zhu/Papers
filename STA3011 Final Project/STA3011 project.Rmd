@@ -1,0 +1,122 @@
+---
+title: "STA3011project"
+author: "Xiao Tan"
+date: "7/19/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(lattice)
+library(caret)
+library(pROC)
+library(car)
+library(leaps)
+```
+
+
+```{r}
+setwd("/Users/Lycoris")
+raw <- read.csv("OnlineNewsPopularity.csv")
+names(data)
+modifiedData<-raw[raw[,4]!=0,]
+modifiedData<-modifiedData[modifiedData[,6]<=1,]
+
+par(mfrow=c(1,1))	  #Use this to display only one plot in the page
+hist(modifiedData$shares,main=" Histogram on number of shares ", xlab=" Number of shares ", ylab=" Frequency " ,sub="Before transformation")
+summary(powerTransform(modifiedData$shares))
+
+
+
+modifiedData$normalizedshares<-log(modifiedData$shares) #log transformation
+boxplot(modifiedData$normalizedshares,names = "Shares",main="Box plot on number of shares",
+        ylab="Number of shares",sub="After transformation")
+hist(modifiedData$normalizedshare,main="Histogram on number of shares",
+     xlab="Normalized number of shares",ylab="Frequency",sub="After transformation")	
+
+
+boxplotstats<-boxplot(modifiedData$normalizedshare)$stats
+print(boxplotstats)
+minimum<-boxplotstats[,1][1]
+lowerhinge<-boxplotstats[,1][2]
+median<-boxplotstats[,1][3]
+upperhinge<-boxplotstats[,1][4]
+maximum<-boxplotstats[,1][5]
+#calculation for mild outliers 
+hspread<-upperhinge-lowerhinge
+lowerouterfence<-lowerhinge-3*hspread
+upperouterfence<-upperhinge+3*hspread
+print(hspread)
+print(lowerouterfence)
+print(upperouterfence)
+
+#removing values beyond the fences
+modifiedData<-modifiedData[!(modifiedData$normalizedshare>=upperouterfence | modifiedData$normalizedshare<=lowerouterfence),]
+
+```
+
+```{r}
+set.seed(1)
+train<-sample(nrow(modifiedData),0.8*nrow(modifiedData),replace=FALSE)
+train_data<-modifiedData[train,]
+test_data<-modifiedData[-train,]
+```
+
+
+
+
+```{r}
+library(gam)
+library(splines)
+
+fisher.gam1 <- lm(log(shares)~ns(kw_avg_avg,3)+ns(LDA_02,3)+data_channel_is_world+is_weekend+data_channel_is_socmed+weekday_is_saturday+ns(LDA_04,3)+ns(data_channel_is_entertainment,3)+data_channel_is_tech+ns(kw_max_avg,4)+weekday_is_sunday+ns(LDA_00,3)+ns(num_hrefs,3)+ns(global_subjectivity,3)+ns(kw_min_avg,3)+ns(global_sentiment_polarity,3)+ns(rate_negative_words,3)+ns(kw_min_min,3)+ns(title_subjectivity,3)+ns(LDA_01,3),data=train_data)
+
+summary(fisher.gam1)
+
+```
+
+
+
+```{r}
+library(gam)
+library(splines)
+
+fisher.gam2 <- lm(log(shares)~ns(kw_avg_avg,5)+ns(LDA_02,3)+data_channel_is_world+is_weekend+data_channel_is_socmed+weekday_is_saturday+ns(LDA_04)+ns(data_channel_is_entertainment)+data_channel_is_tech+ns(kw_max_avg,4)+weekday_is_sunday+LDA_00+ns(num_hrefs)+ns(global_subjectivity)+ns(kw_min_avg,3)+ns(global_sentiment_polarity)+rate_negative_words+ns(kw_min_min)+ns(title_subjectivity,2)+LDA_01,data=train_data)
+
+summary(fisher.gam2)
+
+
+```
+
+
+
+```{r}
+anova(fisher.gam2,fisher.gam1)
+
+```
+
+```{r}
+options(warn=-1) 
+gam.pred <- predict(fisher.gam2,newdata=test_data)
+gam.mse=mean((gam.pred-test_data$shares)^2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

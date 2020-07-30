@@ -1,0 +1,177 @@
+---
+title: "project"
+author: "Anyu Zhu"
+date: "7/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+libraries
+```{r}
+library(e1071) 
+```
+
+Read, preprocess data
+```{r}
+onlineNews <- read.csv("OnlineNewsPopularity.csv",header = TRUE)
+onlineNews<-onlineNews[onlineNews[,4]!=0,]
+onlineNews <- onlineNews[,-1]
+# remove outliers
+onlineNews<-onlineNews[onlineNews[,6]<=1,]
+
+#normalze the target variable 
+onlineNews$transformed_shares<-log(onlineNews$shares)
+
+attach(onlineNews)
+par(mfrow=c(1,2))
+boxplot(onlineNews$shares,names = "Shares",main="Box plot on number of shares",
+        ylab="number of shares",sub="Before transformation")
+boxplot(transformed_shares,names = "Shares",main="Box plot on number of shares",
+        ylab="number of shares",sub="After transformation")
+# Remove outliers in targets
+boxplotstats<-boxplot(onlineNews$transformed_shares)$stats
+print(boxplotstats)
+minimum<-boxplotstats[,1][1]
+lowerhinge<-boxplotstats[,1][2]
+median<-boxplotstats[,1][3]
+upperhinge<-boxplotstats[,1][4]
+maximum<-boxplotstats[,1][5]
+
+# identify fences
+IQR<-upperhinge-lowerhinge
+lowerouterfence<-lowerhinge-3*IQR
+upperouterfence<-upperhinge+3*IQR
+print(IQR)
+print(lowerouterfence)
+print(upperouterfence)
+
+# remove values beyond fences
+onlineNews<-onlineNews[!(onlineNews$transformed_shares>=upperouterfence | onlineNews$transformed_shares<=lowerouterfence),]
+boxplot(onlineNews$transformed_shares,xlab="Transformed Shares",main="Shares after ouliers removal")
+
+```
+
+Analyze Channel Effect
+```{r}
+channel <- onlineNews[,14:19]
+channel <- cbind(channel,onlineNews[,60])
+colnames(channel) <- c("lifestyle","entertainment","bus","socmed","tech","world","shares")
+channel[,"channels"] <- NA
+for (i in 1:nrow(channel)) {
+  for (j in 1:6){
+    if (channel[i,j] == 1){
+      channel[i,8] <- colnames(channel[j])
+    }
+  }
+}
+channel_plot<-channel[,7:8]
+
+library(ggplot2)
+library(ggridges)
+attach(channel_plot)
+ggplot(channel_plot, 
+       aes(x = shares, 
+           y = channels, 
+           fill = channels, alpha = 0.5)) +
+  geom_density_ridges() + 
+  theme_ridges() +
+  labs("number of shares by channels") +
+  theme(legend.position = "none") + xlim(c(1,10000))
+
+# attach(channel)
+# m_channel <- lm(shares ~ lifestyle + entertainment + bus + socmed + tech + world, data = channel)
+# summary(m_channel)
+# detach(channel)
+```
+
+Analyze weekday effect
+
+```{r}
+week <- onlineNews[,31:38]
+week <- cbind(week,onlineNews[,60])
+colnames(week) <- c("Mon","Tue","Wed","Thu","Fri","Sat","Sun", "Weekend", "shares")
+week[,"Day"] <- NA
+for (i in 1:nrow(week)) {
+  for (j in 1:8){
+    if (week[i,j] == 1){
+      week[i,10] <- colnames(week[j])
+    }
+  }
+}
+week_plot<-week[,9:10]
+
+ggplot(week_plot, 
+       aes(x = shares, 
+           y = Day, 
+           fill = Day, alpha = 0.5)) +
+  geom_density_ridges() + 
+  theme_ridges() +
+  labs("number of shares by channels") +
+  theme(legend.position = "none") + xlim(c(1,10000))
+```
+
+Analyze non-binary variables
+```{r}
+non_binary <- cbind(onlineNews[,1:12],onlineNews[,19:30],onlineNews[,39:60])
+library(corrplot)
+library(caret)
+corr <- cor(non_binary)
+# select out high correlated vars
+findCorrelation(corr, cutoff = .6, exact = FALSE, names = TRUE)
+# attach(onlineNews)
+high_cor <- cbind(n_non_stop_words, n_non_stop_unique_tokens, kw_avg_min,kw_max_max, kw_avg_avg, self_reference_avg_sharess, rate_positive_words, rate_negative_words, min_negative_polarity, abs_title_sentiment_polarity, timedelta, global_sentiment_polarity, global_subjectivity,avg_positive_polarity)
+high_cor_mat <- cor(high_cor)
+corrplot(high_cor_mat, method="color")
+```
+
+Basic Regression Analysis
+```{r}
+attach(onlineNews)
+m_sum <- lm(shares ~., data=onlineNews)
+summary(m_sum)
+#transform shares to log
+m_1 <- lm(log(shares) ~., data = onlineNews)
+summary(m_1)
+```
+
+Transform shares to log form. 
+
+By regression, significant factors include: n_tokens_title, num_hrefs, num_self_hrefs, num_imgs, average_token_length, num_keywords, channel_lifestyle/entertainment/bus/socmed/tech, kw_min_min, kw_max_min, kw_avg_min, kw_min_max, kw_avg_max, kw_min_avg, kw_max_avg, kw_avg_avg, weekday_is_mon~fri, global_subjectivity, title_sentiment_polarity, abs_title_subjectivity 
+
+Model Selection
+```{r}
+library(xtable)
+library(leaps)
+best<-regsubsets(as.matrix(onlineNews[,-60]),log(shares), method = "exhaustive", really.big = T)
+rs<-summary(best)
+rs$adjr2
+```
+
+By regsubsets: num_hrefs, data_channel_is_socmed, kw_avg_max, kw_max_avg, kw_avg_avg, self_reference_avg_sharess, is_weekend, LDA_02
+
+Feature Selection
+```{r}
+library(PredPsych)
+library(ggplot2)
+onlineNews$class <- NA
+for (i in 1:nrow(onlineNews)) {
+  if (onlineNews$shares[i] <= 14000){
+      onlineNews$class[i] = 0
+    }else{onlineNews$class[i] = 1}
+}
+fscore <- fscore(onlineNews, classCol = 62, featureCol = c(1:59))
+fscore20 <-read.csv("fs.csv",header = TRUE)
+attach(fscore20)
+y <-fscore20$fscore
+ggplot(fscore20, aes(x = features, y = fscore, main="Feature Scores")) +
+         geom_bar(aes(reorder(features,fscore),fscore),stat = "identity") +
+         coord_flip() + scale_y_continuous(name="Fish Score") +
+  scale_x_discrete(name="Name of Features") +
+theme(axis.text.x = element_text(face="bold", color="#008000",
+                           size=8, angle=0),
+          axis.text.y = element_text(face="bold", color="#008000",
+                           size=8, angle=0))
+```
